@@ -95,6 +95,26 @@ class DataCollection:
         signal_line = macd.ewm(span=signal).mean()
         
         return macd, signal_line
+    
+    def calculate_bollinger_bands(self, data, window=20, num_std=2):
+        """
+        Calculate Bollinger Bands.
+        
+        Bollinger Bands show volatility around a moving average.
+        When price hits upper band, it might be overbought.
+        When price hits lower band, it might be oversold.
+        """
+        # Calculate middle band (SMA)
+        sma = self.calculate_sma(data, window)
+        
+        # Calculate standard deviation
+        std = data['Close'].rolling(window=window).std()
+        
+        # Calculate upper and lower bands
+        upper_band = sma + (std * num_std)
+        lower_band = sma - (std * num_std)
+        
+        return upper_band, lower_band
 
     
 
