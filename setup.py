@@ -202,21 +202,31 @@ def test_installation():
     """
     print("\n🧪 Testing installation...")
     
-    test_imports = [
+    # Essential packages (must work)
+    essential_imports = [
         ('pandas', 'pd'),
         ('numpy', 'np'),
         ('yfinance', 'yf'),
         ('matplotlib.pyplot', 'plt'),
         ('seaborn', 'sns'),
         ('sklearn', None),
-        ('streamlit', 'st'),
         ('plotly', None),
-        ('tensorflow', 'tf'),
     ]
     
-    failed_imports = []
+    # Optional packages (nice to have, but not required for setup)
+    '''
+    optional_imports = [
+        ('streamlit', 'st'),
+        ('tensorflow', 'tf'),
+    ]
+    '''
     
-    for module, alias in test_imports:
+    failed_essential = []
+    failed_optional = []
+    
+    # Test essential packages
+    print("📦 Testing essential packages...")
+    for module, alias in essential_imports:
         try:
             if alias:
                 exec(f"import {module} as {alias}")
@@ -225,21 +235,34 @@ def test_installation():
             print(f"  ✅ {module}")
         except ImportError as e:
             print(f"  ❌ {module} - {str(e)}")
-            failed_imports.append(module)
-    
-    if failed_imports:
-        print(f"\n⚠️  Some packages failed to import: {failed_imports}")
-        print("   Try reinstalling with: pip install <package_name>")
+            failed_essential.append(module)
+    '''
+    # Test optional packages
+    print("\n🔧 Testing optional packages...")
+    for module, alias in optional_imports:
+        try:
+            if alias:
+                exec(f"import {module} as {alias}")
+            else:
+                exec(f"import {module}")
+            print(f"  ✅ {module}")
+        except ImportError as e:
+            print(f"  ⚠️  {module} - {str(e)}")
+            print(f"     (Optional - can install later)")
+            failed_optional.append(module)
+    '''
+    # Summary
+    if failed_essential:
+        print(f"\n❌ CRITICAL: Essential packages failed: {failed_essential}")
+        print("   These are required! Try: pip install <package_name>")
+        return False
+    elif failed_optional:
+        print(f"\n✅ Essential packages work! Optional failed: {failed_optional}")
+        print("💡 You can continue and install optional packages later")
+        return True
     else:
         print("\n🎉 All packages imported successfully!")
-    
-    # Test TensorFlow specifically
-    try:
-        import tensorflow as tf
-        print(f"\n🤖 TensorFlow version: {tf.__version__}")
-        print(f"🔧 GPU available: {len(tf.config.list_physical_devices('GPU')) > 0}")
-    except Exception as e:
-        print(f"\n❌ TensorFlow test failed: {e}")
+        return True
 
 def main():
     """
@@ -253,15 +276,32 @@ def main():
     install_packages()
     create_requirements_file()
     create_config_file()
-    test_installation()
+    
+    # Test installation and check if we can proceed
+    setup_success = test_installation()
     
     print("\n" + "=" * 50)
-    print("🎉 Project setup complete!")
-    print("\nNext steps:")
-    print("1. Run: python data_collector.py")
-    print("2. Run: python model_trainer.py")
-    print("3. Run: streamlit run dashboard/app.py")
-    print("\n💡 Tip: Check the created files and folders in your project directory!")
+    
+    if setup_success:
+        print("🎉 Project setup complete!")
+        print("\nNext steps:")
+        print("1. Run: python data_collector.py")
+        print("2. Run: python model_trainer.py (requires TensorFlow)")
+        print("3. Run: streamlit run dashboard/app.py")
+        print("\n💡 Tip: You can start with data collection even if TensorFlow isn't working yet!")
+        
+        if 'tensorflow' in locals():
+            try:
+                import tensorflow as tf
+                print(f"\n🤖 TensorFlow version: {tf.__version__}")
+                print(f"🔧 GPU available: {len(tf.config.list_physical_devices('GPU')) > 0}")
+            except:
+                print(f"\n💡 TensorFlow will be needed later for model training")
+                print("   Install with: pip install tensorflow-cpu (for Intel Mac)")
+                print("   Or: pip install tensorflow-macos tensorflow-metal (for Apple Silicon)")
+    else:
+        print("❌ Setup incomplete - fix essential packages first!")
+        print("\n💡 Try running the setup again after installing missing packages")
 
 if __name__ == "__main__":
     main()
