@@ -38,12 +38,12 @@ class DataCollection:
             return None
         
         data.columns = data.columns.str.strip()
-
+        
         data['Symbol'] = stock_symbol
-        print(f"  ✅ Fetched {len(data)} days of data for {symbol}")
+        print(f"  ✅ Fetched {len(data)} days of data for {stock_symbol}")
         return data
     
-    
+
         
 
 
