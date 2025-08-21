@@ -6,16 +6,7 @@ All project settings are centralized here for easy management.
 
 # Top 10 tech stocks to analyze
 TECH_STOCKS = [
-    'AAPL',   # Apple
-    'MSFT',   # Microsoft
-    'GOOGL',  # Google (Alphabet)
-    'AMZN',   # Amazon
-    'TSLA',   # Tesla
-    'META',   # Meta (Facebook)
-    'NVDA',   # NVIDIA
-    'NFLX',   # Netflix
-    'CRM',    # Salesforce
-    'ORCL'    # Oracle
+    'AAPL'   # Apple
 ]
 
 # Data settings
