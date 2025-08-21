@@ -180,7 +180,104 @@ class DataCollection:
         print(f"  🎯 Target distribution: {data['Target'].value_counts().to_dict()}")
         return data
 
+    def clean_data(self, data):
+        """
+        Clean the dataset by removing NaN values and outliers.
+        
+        Why we clean data:
+        - NaN values break machine learning algorithms
+        - Outliers can mislead the model
+        - Clean data = better model performance
+        """
+        print("  🧹 Cleaning data...")
+        
+        # Store original length
+        original_len = len(data)
+        
+        # Remove rows with NaN values
+        data = data.dropna()
+        
+        # Remove extreme outliers (beyond 3 standard deviations)
+        for column in ['Close', 'Volume', 'RSI']:
+            if column in data.columns:
+                mean = data[column].mean()
+                std = data[column].std()
+                data = data[abs(data[column] - mean) <= (3 * std)]
+        
+        print(f"  📉 Removed {original_len - len(data)} rows ({((original_len - len(data)) / original_len * 100):.1f}%)")
+        return data
     
+    def save_data(self, data, symbol):
+        """
+        Save processed data to CSV file.
+        
+        Why save data:
+        - Avoid re-downloading same data
+        - Faster model training
+        - Data backup
+        """
+        filename = f"{self.data_path}{symbol}_processed.csv"
+        data.to_csv(filename, index=True)
+        print(f"  💾 Saved data to {filename}")
+
+    def collect_all_stocks(self):
+        """
+        Collect and process data for all tech stocks.
+        
+        This is the main function that orchestrates everything:
+        1. Fetch raw data
+        2. Add technical indicators
+        3. Create target variable
+        4. Clean data
+        5. Save data
+        """
+        print("🚀 Starting data collection for all tech stocks...")
+        print("=" * 50)
+        
+        all_data = []
+        successful_stocks = []
+        
+        for symbol in TECH_STOCKS:
+            print(f"\n📈 Processing {symbol}...")
+            
+            # Step 1: Fetch raw stock data
+            raw_data = self.fetch_stock_data(symbol)
+            if raw_data is None:
+                continue
+            
+            # Step 2: Add technical indicators
+            processed_data = self.add_technical_indicators(raw_data)
+            
+            # Step 3: Create target variable (what we want to predict)
+            processed_data = self.create_target_variable(processed_data)
+            
+            # Step 4: Clean the data
+            processed_data = self.clean_data(processed_data)
+            
+            # Step 5: Save individual stock data
+            self.save_data(processed_data, symbol)
+            
+            # Add to combined dataset
+            all_data.append(processed_data)
+            successful_stocks.append(symbol)
+            
+            print(f"✅ {symbol} completed: {len(processed_data)} samples")
+        
+        # Combine all stock data
+        if all_data:
+            combined_data = pd.concat(all_data, ignore_index=True)
+            combined_filename = f"{self.data_path}all_stocks_combined.csv"
+            combined_data.to_csv(combined_filename, index=False)
+            
+            print(f"\n🎉 Data collection completed!")
+            print(f"📊 Successfully processed: {successful_stocks}")
+            print(f"📁 Combined dataset: {len(combined_data)} samples")
+            print(f"💾 Saved to: {combined_filename}")
+            
+            return combined_data
+        else:
+            print("❌ No data collected successfully")
+            return None
 
         
 
