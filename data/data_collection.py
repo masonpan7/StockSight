@@ -156,7 +156,30 @@ class DataCollection:
         print("  ✅ Technical indicators calculated")
         return data
     
-    
+    def create_target_variable(self, data):
+        """
+        Create the target variable for classification.
+        
+        Target = 1 if tomorrow's close > today's close (UP)
+        Target = 0 if tomorrow's close <= today's close (DOWN)
+        
+        This is what we're trying to predict!
+        """
+        # Shift close price to get next day's price
+        data['Next_Close'] = data['Close'].shift(-1)
+        
+        # Create binary target: 1 for up, 0 for down
+        data['Target'] = (data['Next_Close'] > data['Close']).astype(int)
+        
+        # Calculate the actual price change for evaluation
+        data['Next_Day_Change'] = ((data['Next_Close'] - data['Close']) / data['Close']) * 100
+        
+        # Remove the last row as it doesn't have a next day
+        data = data[:-1].copy()
+        
+        print(f"  🎯 Target distribution: {data['Target'].value_counts().to_dict()}")
+        return data
+
     
 
         
