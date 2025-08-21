@@ -116,6 +116,47 @@ class DataCollection:
         
         return upper_band, lower_band
 
+    def add_technical_indicators(self, data):
+        """
+        Add all technical indicators to the dataset.
+        
+        Why these indicators:
+        - SMA: Shows trend direction
+        - RSI: Shows momentum
+        - MACD: Shows trend changes
+        - Bollinger Bands: Shows volatility and potential reversal points
+        - Volume MA: Shows buying/selling interest
+        """
+        print("  📊 Calculating technical indicators...")
+        
+        # Simple Moving Averages
+        data['SMA_20'] = self.calculate_sma(data, 20)
+        data['SMA_50'] = self.calculate_sma(data, 50)
+        
+        # RSI
+        data['RSI'] = self.calculate_rsi(data)
+        
+        # MACD
+        macd, signal = self.calculate_macd(data)
+        data['MACD'] = macd
+        data['MACD_Signal'] = signal
+        
+        # Bollinger Bands
+        bb_upper, bb_lower = self.calculate_bollinger_bands(data)
+        data['BB_upper'] = bb_upper
+        data['BB_lower'] = bb_lower
+        
+        # Volume Moving Average
+        data['Volume_MA'] = data['Volume'].rolling(window=20).mean()
+        
+        # Price change indicators
+        data['Price_Change'] = data['Close'].pct_change()  # Daily return
+        data['High_Low_Pct'] = (data['High'] - data['Low']) / data['Close']  # Volatility
+        
+        print("  ✅ Technical indicators calculated")
+        return data
+    
+    
     
 
         
