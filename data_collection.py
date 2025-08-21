@@ -278,7 +278,58 @@ class DataCollection:
         else:
             print("❌ No data collected successfully")
             return None
+    def get_data_summary(self):
+        """
+        Display a summary of collected data.
+        
+        This helps us understand our dataset before training.
+        """
+        try:
+            # Load combined data
+            combined_file = f"{self.data_path}all_stocks_combined.csv"
+            if not os.path.exists(combined_file):
+                print("❌ No combined data found. Run collect_all_stocks() first.")
+                return
+            
+            data = pd.read_csv(combined_file)
+            
+            print("\n📊 DATA SUMMARY")
+            print("=" * 30)
+            print(f"Total samples: {len(data):,}")
+            print(f"Date range: {data['Date'].min() if 'Date' in data.columns else 'Unknown'} to {data['Date'].max() if 'Date' in data.columns else 'Unknown'}")
+            print(f"Stocks: {data['Symbol'].unique().tolist()}")
+            print(f"\nTarget distribution:")
+            target_dist = data['Target'].value_counts()
+            for target, count in target_dist.items():
+                direction = "UP" if target == 1 else "DOWN"
+                percentage = (count / len(data)) * 100
+                print(f"  {direction}: {count:,} ({percentage:.1f}%)")
+            
+            print(f"\nFeatures available: {len(data.columns)}")
+            print(f"Features: {list(data.columns)}")
+            
+        except Exception as e:
+            print(f"❌ Error loading data summary: {e}")
 
+def main():
+    """
+    Main function to run data collection.
+    """
+    # Create data collector instance
+    collector = DataCollection()
+    
+    # Collect all stock data
+    data = collector.collect_all_stocks()
+    
+    # Show summary
+    collector.get_data_summary()
+    
+    if data is not None:
+        print(f"\n✅ Ready for model training!")
+        print(f"Next step: python model_trainer.py")
+
+if __name__ == "__main__":
+    main()
         
 
 
