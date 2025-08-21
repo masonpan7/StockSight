@@ -241,7 +241,7 @@ class DataCollection:
             print(f"\n📈 Processing {symbol}...")
             
             # Step 1: Fetch raw stock data
-            raw_data = self.fetch_stock_data(symbol)
+            raw_data = self.stock_fetch_data(symbol)
             if raw_data is None:
                 continue
             
