@@ -300,3 +300,55 @@ class StockPredictor:
         }
         
         return model, history
+    
+    def train_traditional_models(self, X_train, y_train, X_test, y_test):
+        """
+        Train traditional machine learning models for comparison.
+        
+        Why compare with traditional ML:
+        - Sometimes simpler models work better
+        - Faster to train and predict
+        - More interpretable results
+        - Good baseline to beat with neural networks
+        """
+        print("📊 Training traditional ML models...")
+        
+        # Flatten sequences for traditional ML (they don't handle sequences)
+        X_train_flat = X_train.reshape(X_train.shape[0], -1)
+        X_test_flat = X_test.reshape(X_test.shape[0], -1)
+        
+        # Scale features for traditional ML
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train_flat)
+        X_test_scaled = scaler.transform(X_test_flat)
+        
+        # Model 1: Random Forest
+        print("  🌲 Training Random Forest...")
+        rf_model = RandomForestClassifier(
+            n_estimators=100,  # 100 trees
+            max_depth=10,      # Prevent overfitting
+            random_state=42
+        )
+        rf_model.fit(X_train_scaled, y_train)
+        
+        # Model 2: Logistic Regression
+        print("  📈 Training Logistic Regression...")
+        lr_model = LogisticRegression(
+            max_iter=1000,     # Ensure convergence
+            random_state=42
+        )
+        lr_model.fit(X_train_scaled, y_train)
+        
+        # Save traditional models
+        with open(f"{self.model_path}random_forest.pkl", 'wb') as f:
+            pickle.dump((rf_model, scaler), f)
+        
+        with open(f"{self.model_path}logistic_regression.pkl", 'wb') as f:
+            pickle.dump((lr_model, scaler), f)
+        
+        # Store results
+        self.models['Random Forest'] = (rf_model, scaler)
+        self.models['Logistic Regression'] = (lr_model, scaler)
+        
+        print("✅ Traditional models trained and saved")
+        return rf_model, lr_model, scaler
