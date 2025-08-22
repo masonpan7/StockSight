@@ -204,4 +204,99 @@ class StockPredictor:
         print("✅ LSTM model built")
         model.summary()
         
-        return mode
+        return model
+    
+    def build_gru_model(self, input_shape):
+        """
+        Build GRU (Gated Recurrent Unit) neural network model.
+        
+        GRU is similar to LSTM but simpler and faster:
+        - Uses fewer parameters than LSTM
+        - Often performs similarly to LSTM
+        - Faster training and inference
+        - Good alternative if LSTM is too slow
+        """
+        print("🧠 Building GRU model...")
+        
+        model = Sequential([
+            # First GRU layer
+            GRU(50, return_sequences=True, input_shape=input_shape),
+            Dropout(0.2),
+            
+            # Second GRU layer
+            GRU(50, return_sequences=True),
+            Dropout(0.2),
+            
+            # Third GRU layer  
+            GRU(50, return_sequences=False),
+            Dropout(0.2),
+            
+            # Dense layers for classification
+            Dense(25, activation='relu'),
+            Dropout(0.2),
+            Dense(1, activation='sigmoid')  # Binary classification
+        ])
+        
+        model.compile(
+            optimizer=Adam(learning_rate=LEARNING_RATE),
+            loss='binary_crossentropy',
+            metrics=['accuracy']
+        )
+        
+        print("✅ GRU model built")
+        return model
+    
+    def train_lstm_model(self, X_train, y_train, X_test, y_test):
+        """
+        Train LSTM model and track performance.
+        
+        Why we use validation data:
+        - Monitor overfitting during training
+        - Stop early if model stops improving  
+        - Get unbiased performance estimate
+        """
+        print("🚀 Training LSTM model...")
+        
+        # Build model
+        model = self.build_lstm_model((X_train.shape[1], X_train.shape[2]))
+        
+        # Create callbacks for better training
+        callbacks = [
+            # Stop early if validation loss stops improving
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss',
+                patience=10,  # Wait 10 epochs before stopping
+                restore_best_weights=True
+            ),
+            # Reduce learning rate if stuck
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,  # Cut learning rate in half
+                patience=5,
+                min_lr=0.0001
+            )
+        ]
+        
+        # Train the model
+        history = model.fit(
+            X_train, y_train,
+            epochs=EPOCHS,
+            batch_size=BATCH_SIZE,
+            validation_data=(X_test, y_test),
+            callbacks=callbacks,
+            verbose=1
+        )
+        
+        # Save the model
+        model_path = f"{self.model_path}lstm_model.h5"
+        model.save(model_path)
+        print(f"💾 LSTM model saved to {model_path}")
+        
+        # Store results
+        self.models['LSTM'] = model
+        self.results['LSTM'] = {
+            'history': history.history,
+            'model_path': model_path
+        }
+        
+        return model, history
