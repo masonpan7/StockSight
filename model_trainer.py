@@ -586,4 +586,94 @@ class StockPredictor:
         
         return data
     
+    def run_full_pipeline(self):
+        """
+        Run the complete model training pipeline.
+        
+        This is the main function that:
+        1. Loads and prepares data
+        2. Trains all models  
+        3. Evaluates performance
+        4. Creates visualizations
+        5. Saves everything
+        """
+        print("🚀 STARTING FULL MODEL TRAINING PIPELINE")
+        print("=" * 50)
+        
+        # Step 1: Load data
+        data = self.load_data()
+        if data is None:
+            return
+        
+        # Step 2: Prepare features
+        X, y, feature_names = self.prepare_features(data)
+        
+        # Step 3: Create sequences for LSTM
+        X_seq, y_seq = self.create_sequences(X, y)
+        
+        # Step 4: Split data
+        # Use 80% for training, 20% for testing
+        split_idx = int(len(X_seq) * TRAIN_SPLIT)
+        X_train, X_test = X_seq[:split_idx], X_seq[split_idx:]
+        y_train, y_test = y_seq[:split_idx], y_seq[split_idx:]
+        
+        print(f"📊 Training samples: {len(X_train)}")
+        print(f"📊 Testing samples: {len(X_test)}")
+        
+        # Step 5: Scale features
+        # Fit scaler on training data only (prevent data leakage)
+        X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
+        X_test_reshaped = X_test.reshape(-1, X_test.shape[-1])
+        
+        self.feature_scaler.fit(X_train_reshaped)
+        X_train_scaled = self.feature_scaler.transform(X_train_reshaped)
+        X_test_scaled = self.feature_scaler.transform(X_test_reshaped)
+        
+        # Reshape back to sequences
+        X_train = X_train_scaled.reshape(X_train.shape)
+        X_test = X_test_scaled.reshape(X_test.shape)
+        
+        # Step 6: Train LSTM model
+        lstm_model, lstm_history = self.train_lstm_model(X_train, y_train, X_test, y_test)
+        
+        # Step 7: Train traditional models
+        rf_model, lr_model, scaler = self.train_traditional_models(X_train, y_train, X_test, y_test)
+        
+        # Step 8: Evaluate all models
+        results = self.evaluate_models(X_test, y_test)
+        
+        # Step 9: Create visualizations
+        self.plot_training_history()
+        self.create_confusion_matrices(results, y_test)
+        
+        # Step 10: Save scalers
+        with open(f"{self.model_path}feature_scaler.pkl", 'wb') as f:
+            pickle.dump(self.feature_scaler, f)
+        
+        print(f"\n🎉 PIPELINE COMPLETE!")
+        print(f"💾 All models saved to: {self.model_path}")
+        print(f"📊 All results saved to: {self.results_path}")
+        
+        return results
+
+def main():
+    """Main function to run model training."""
+    # Create predictor
+    predictor = StockPredictor()
     
+    # Run full pipeline
+    results = predictor.run_full_pipeline()
+    
+    if results:
+        print(f"\n🎯 FINAL RESULTS:")
+        print("=" * 30)
+        for model_name, metrics in results.items():
+            print(f"{model_name}: {metrics['accuracy']*100:.2f}% accuracy")
+        
+        print(f"\n💡 Next steps:")
+        print(f"1. Check plots in {predictor.results_path}")
+        print(f"2. Run predictions: predictor.predict_next_day('AAPL')")
+        print(f"3. Create dashboard: streamlit run dashboard/app.py")
+
+if __name__ == "__main__":
+    main()
