@@ -449,3 +449,141 @@ class StockPredictor:
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.show()
         print(f"📊 Training plots saved to {plot_path}")
+
+    def create_confusion_matrices(self, results_summary, y_test):
+        """
+        Create confusion matrices for all models.
+        
+        Confusion matrix shows:
+        - True Positives: Correctly predicted UP
+        - True Negatives: Correctly predicted DOWN  
+        - False Positives: Predicted UP but was DOWN
+        - False Negatives: Predicted DOWN but was UP
+        """
+        n_models = len(results_summary)
+        fig, axes = plt.subplots(1, n_models, figsize=(5*n_models, 4))
+        
+        if n_models == 1:
+            axes = [axes]
+        
+        for idx, (model_name, results) in enumerate(results_summary.items()):
+            y_pred = results['predictions']
+            
+            # Create confusion matrix
+            cm = confusion_matrix(y_test, y_pred)
+            
+            # Plot
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                       xticklabels=['DOWN', 'UP'],
+                       yticklabels=['DOWN', 'UP'],
+                       ax=axes[idx])
+            
+            axes[idx].set_title(f'{model_name}\nAccuracy: {results["accuracy"]:.3f}')
+            axes[idx].set_xlabel('Predicted')
+            axes[idx].set_ylabel('Actual')
+        
+        plt.tight_layout()
+        plot_path = f"{self.results_path}confusion_matrices.png"
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        print(f"📊 Confusion matrices saved to {plot_path}")
+
+    def predict_next_day(self, symbol, model_name='LSTM'):
+        """
+        Predict tomorrow's direction for a specific stock.
+        
+        This function:
+        1. Gets the latest data for the stock
+        2. Prepares it in the same format as training
+        3. Makes a prediction using the trained model
+        4. Returns probability and direction
+        """
+        print(f"🔮 Predicting next day for {symbol} using {model_name}...")
+        
+        if model_name not in self.models:
+            print(f"❌ Model {model_name} not found!")
+            return None
+        
+        try:
+            # Get fresh data
+            import yfinance as yf
+            stock = yf.Ticker(symbol)
+            recent_data = stock.history(period='3mo')  # Get 3 months of recent data
+            
+            if len(recent_data) < SEQUENCE_LENGTH:
+                print(f"❌ Not enough recent data for {symbol}")
+                return None
+            
+            # Prepare features (same as training)
+            processed_data = self.add_technical_indicators(recent_data.copy())
+            feature_columns = ['Open', 'High', 'Low', 'Close', 'Volume',
+                             'SMA_20', 'SMA_50', 'RSI', 'MACD', 'BB_upper', 'BB_lower']
+            
+            X = processed_data[feature_columns].dropna()
+            
+            if len(X) < SEQUENCE_LENGTH:
+                print(f"❌ Not enough processed data for {symbol}")
+                return None
+            
+            # Take the last SEQUENCE_LENGTH days
+            X_recent = X.iloc[-SEQUENCE_LENGTH:].values
+            
+            # Scale features
+            X_scaled = self.feature_scaler.transform(X_recent)
+            X_sequence = X_scaled.reshape(1, SEQUENCE_LENGTH, -1)
+            
+            # Make prediction
+            if model_name == 'LSTM':
+                model = self.models[model_name]
+                prediction = model.predict(X_sequence)[0][0]
+                direction = "UP" if prediction > 0.5 else "DOWN"
+                confidence = prediction if prediction > 0.5 else 1 - prediction
+            else:
+                model, scaler = self.models[model_name]
+                X_flat = X_sequence.reshape(1, -1)
+                prediction = model.predict_proba(X_flat)[0][1]  # Probability of UP
+                direction = "UP" if prediction > 0.5 else "DOWN"
+                confidence = prediction if prediction > 0.5 else 1 - prediction
+            
+            result = {
+                'symbol': symbol,
+                'direction': direction,
+                'confidence': confidence,
+                'probability': prediction,
+                'current_price': recent_data['Close'].iloc[-1]
+            }
+            
+            print(f"  📈 {symbol}: {direction} ({confidence*100:.1f}% confidence)")
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error predicting for {symbol}: {e}")
+            return None
+        
+    def add_technical_indicators(self, data):
+        """Add technical indicators to new data (same as training)."""
+        # SMA
+        data['SMA_20'] = data['Close'].rolling(20).mean()
+        data['SMA_50'] = data['Close'].rolling(50).mean()
+        
+        # RSI
+        delta = data['Close'].diff()
+        gains = delta.where(delta > 0, 0).rolling(14).mean()
+        losses = -delta.where(delta < 0, 0).rolling(14).mean()
+        rs = gains / losses
+        data['RSI'] = 100 - (100 / (1 + rs))
+        
+        # MACD
+        exp12 = data['Close'].ewm(span=12).mean()
+        exp26 = data['Close'].ewm(span=26).mean()
+        data['MACD'] = exp12 - exp26
+        
+        # Bollinger Bands
+        sma20 = data['Close'].rolling(20).mean()
+        std20 = data['Close'].rolling(20).std()
+        data['BB_upper'] = sma20 + (2 * std20)
+        data['BB_lower'] = sma20 - (2 * std20)
+        
+        return data
+    
+    
