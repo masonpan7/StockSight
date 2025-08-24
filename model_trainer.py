@@ -352,3 +352,100 @@ class StockPredictor:
         
         print("✅ Traditional models trained and saved")
         return rf_model, lr_model, scaler
+    
+    def evaluate_models(self, X_test, y_test):
+        """
+        Evaluate all trained models and compare performance.
+        
+        Metrics we track:
+        - Accuracy: Overall correctness
+        - Precision: Of predicted UPs, how many were correct
+        - Recall: Of actual UPs, how many did we catch
+        - F1-score: Balance between precision and recall
+        """
+        print("📊 Evaluating all models...")
+        
+        results_summary = {}
+        
+        # Evaluate LSTM
+        if 'LSTM' in self.models:
+            print("  🧠 Evaluating LSTM...")
+            lstm_model = self.models['LSTM']
+            lstm_pred = lstm_model.predict(X_test)
+            lstm_pred_binary = (lstm_pred > 0.5).astype(int).flatten()
+            
+            results_summary['LSTM'] = {
+                'accuracy': accuracy_score(y_test, lstm_pred_binary),
+                'classification_report': classification_report(y_test, lstm_pred_binary),
+                'predictions': lstm_pred_binary
+            }
+        
+        # Evaluate traditional models
+        X_test_flat = X_test.reshape(X_test.shape[0], -1)
+        
+        for model_name in ['Random Forest', 'Logistic Regression']:
+            if model_name in self.models:
+                print(f"  📊 Evaluating {model_name}...")
+                model, scaler = self.models[model_name]
+                X_test_scaled = scaler.transform(X_test_flat)
+                pred = model.predict(X_test_scaled)
+                
+                results_summary[model_name] = {
+                    'accuracy': accuracy_score(y_test, pred),
+                    'classification_report': classification_report(y_test, pred),
+                    'predictions': pred
+                }
+        
+        # Print comparison
+        print(f"\n📈 MODEL COMPARISON:")
+        print("=" * 40)
+        for model_name, metrics in results_summary.items():
+            accuracy = metrics['accuracy']
+            print(f"{model_name:<20}: {accuracy:.4f} ({accuracy*100:.2f}%)")
+        
+        # Find best model
+        best_model = max(results_summary.items(), key=lambda x: x[1]['accuracy'])
+        print(f"\n🏆 Best Model: {best_model[0]} ({best_model[1]['accuracy']*100:.2f}%)")
+        
+        return results_summary
+    
+    def plot_training_history(self):
+        """
+        Plot training history for neural networks.
+        
+        This helps us understand:
+        - Is the model learning?
+        - Is it overfitting?
+        - Should we train longer or stop earlier?
+        """
+        if 'LSTM' not in self.results:
+            print("No LSTM training history to plot")
+            return
+        
+        history = self.results['LSTM']['history']
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Plot accuracy
+        ax1.plot(history['accuracy'], label='Training Accuracy', color='blue')
+        ax1.plot(history['val_accuracy'], label='Validation Accuracy', color='red')
+        ax1.set_title('Model Accuracy Over Time')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Accuracy')
+        ax1.legend()
+        ax1.grid(True)
+        
+        # Plot loss
+        ax2.plot(history['loss'], label='Training Loss', color='blue')
+        ax2.plot(history['val_loss'], label='Validation Loss', color='red')
+        ax2.set_title('Model Loss Over Time')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Loss')
+        ax2.legend()
+        ax2.grid(True)
+        
+        plt.tight_layout()
+        plot_path = f"{self.results_path}training_history.png"
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        print(f"📊 Training plots saved to {plot_path}")
