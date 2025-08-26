@@ -1,10 +1,9 @@
 import pandas as pd
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-from keras.models import Sequential
-from keras.layers import LSTM, Dense, Dropout, GRU
-from keras.optimizers import Adam
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
@@ -16,14 +15,120 @@ import os
 import pickle
 from config import *
 
+# Set device for PyTorch (MPS for Apple Silicon, CUDA for NVIDIA, CPU fallback)
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("🚀 Using Apple Silicon GPU (MPS)")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+    print("🚀 Using NVIDIA GPU (CUDA)")
+else:
+    device = torch.device("cpu")
+    print("💻 Using CPU")
+
+class LSTMModel(nn.Module):
+    """
+    PyTorch LSTM model for stock price prediction.
+    
+    Equivalent to the TensorFlow Sequential model with:
+    - 3 LSTM layers with dropout
+    - Dense layers for classification
+    - Sigmoid output for binary classification
+    """
+    def __init__(self, input_size, hidden_size=50, num_layers=3, dropout=0.2):
+        super(LSTMModel, self).__init__()
+        
+        # LSTM layers
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True  # Input shape: (batch, seq, feature)
+        )
+        
+        # Dropout layer
+        self.dropout = nn.Dropout(dropout)
+        
+        # Dense layers
+        self.fc1 = nn.Linear(hidden_size, 25)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(25, 1)
+        self.sigmoid = nn.Sigmoid()
+        
+    def forward(self, x):
+        # LSTM forward pass
+        lstm_out, (hidden, cell) = self.lstm(x)
+        
+        # Take the last output from the sequence
+        last_output = lstm_out[:, -1, :]
+        
+        # Apply dropout
+        out = self.dropout(last_output)
+        
+        # Dense layers
+        out = self.fc1(out)
+        out = self.relu(out)
+        out = self.dropout(out)
+        out = self.fc2(out)
+        out = self.sigmoid(out)
+        
+        return out
+
+class GRUModel(nn.Module):
+    """
+    PyTorch GRU model for stock price prediction.
+    
+    Equivalent to the TensorFlow GRU model.
+    """
+    def __init__(self, input_size, hidden_size=50, num_layers=3, dropout=0.2):
+        super(GRUModel, self).__init__()
+        
+        # GRU layers
+        self.gru = nn.GRU(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True
+        )
+        
+        # Dropout layer
+        self.dropout = nn.Dropout(dropout)
+        
+        # Dense layers
+        self.fc1 = nn.Linear(hidden_size, 25)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(25, 1)
+        self.sigmoid = nn.Sigmoid()
+        
+    def forward(self, x):
+        # GRU forward pass
+        gru_out, hidden = self.gru(x)
+        
+        # Take the last output from the sequence
+        last_output = gru_out[:, -1, :]
+        
+        # Apply dropout
+        out = self.dropout(last_output)
+        
+        # Dense layers
+        out = self.fc1(out)
+        out = self.relu(out)
+        out = self.dropout(out)
+        out = self.fc2(out)
+        out = self.sigmoid(out)
+        
+        return out
+
 class StockPredictor:
     """
-    Complete stock movement prediction system.
+    Complete stock movement prediction system using PyTorch.
     
     This class handles:
     1. Data preprocessing 
     2. Feature engineering
-    3. Model training (LSTM, Traditional ML)
+    3. Model training (LSTM, GRU, Traditional ML)
     4. Model comparison
     5. Prediction and evaluation
     """
@@ -39,21 +144,16 @@ class StockPredictor:
         os.makedirs(self.results_path, exist_ok=True)
         
         # Scalers for normalizing data
-        # MinMaxScaler: scales features to 0-1 range (good for neural networks)
-        # StandardScaler: standardizes features to mean=0, std=1 (good for traditional ML)
         self.feature_scaler = MinMaxScaler()
         self.target_scaler = StandardScaler()
         
         # Store models for comparison
         self.models = {}
         self.results = {}
+        self.device = device
 
     def load_data(self):
-        """
-        Load the preprocessed stock data.
-        
-        Returns the combined dataset from all stocks.
-        """
+        """Load the preprocessed stock data."""
         print("📊 Loading stock data...")
         
         data_file = f"{self.data_path}all_stocks_combined.csv"
@@ -67,23 +167,15 @@ class StockPredictor:
         return data
     
     def prepare_features(self, data):
-        """
-        Select and prepare features for machine learning.
-        
-        Feature selection is crucial:
-        - Use technical indicators that actually predict price movements
-        - Remove features that cause data leakage (future information)
-        - Handle missing values properly
-        """
+        """Select and prepare features for machine learning."""
         print("🔧 Preparing features...")
         
         # Select features for prediction
-        # We exclude: Date, Symbol, Next_Close, Next_Day_Change (these contain future info)
         feature_columns = [
-            'Open', 'High', 'Low', 'Close', 'Volume',  # Basic OHLCV
-            'SMA_20', 'SMA_50', 'RSI', 'MACD', 'MACD_Signal',  # Technical indicators
+            'Open', 'High', 'Low', 'Close', 'Volume',
+            'SMA_20', 'SMA_50', 'RSI', 'MACD', 'MACD_Signal',
             'BB_upper', 'BB_lower', 'Volume_MA',
-            'Price_Change', 'High_Low_Pct'  # Price-based features
+            'Price_Change', 'High_Low_Pct'
         ]
         
         # Filter to only include available columns
@@ -105,15 +197,7 @@ class StockPredictor:
         return X, y, available_features
     
     def create_sequences(self, X, y, sequence_length=SEQUENCE_LENGTH):
-        """
-        Create sequences for LSTM training.
-        
-        LSTM needs sequential data:
-        - Input: Last N days of features
-        - Output: Next day direction (up/down)
-        
-        Example: Use days 1-60 to predict day 61
-        """
+        """Create sequences for LSTM training."""
         print(f"🔄 Creating sequences of length {sequence_length}...")
         
         X_sequences = []
@@ -124,7 +208,6 @@ class StockPredictor:
             symbols = X['Symbol'].unique()
             X_no_symbol = X.drop('Symbol', axis=1)
         else:
-            # If no symbol column, treat as one continuous sequence
             symbols = ['ALL']
             X_no_symbol = X
         
@@ -139,7 +222,6 @@ class StockPredictor:
             
             # Create sequences for this stock
             for i in range(sequence_length, len(symbol_data)):
-                # Take sequence_length days of features
                 sequence_X = symbol_data.iloc[i-sequence_length:i].values
                 sequence_y = symbol_targets.iloc[i]
                 
@@ -154,170 +236,161 @@ class StockPredictor:
         
         return X_seq, y_seq
     
-    def build_lstm_model(self, input_shape):
+    def train_pytorch_model(self, X_train, y_train, X_test, y_test, model_type='LSTM'):
         """
-        Build LSTM neural network model.
+        Train PyTorch model (LSTM or GRU).
         
-        Architecture explanation:
-        1. LSTM Layer 1: 50 units, returns sequences for next layer
-        2. Dropout: Prevents overfitting by randomly turning off neurons
-        3. LSTM Layer 2: 50 units, returns sequences  
-        4. LSTM Layer 3: 50 units, final sequence processing
-        5. Dense layers: Traditional neural network for final classification
-        
-        Why LSTM?
-        - Remembers long-term dependencies in time series
-        - Can capture patterns over days/weeks
-        - Good for sequential financial data
+        This replaces the TensorFlow training with PyTorch equivalents:
+        - DataLoader for batch processing
+        - Adam optimizer
+        - Binary cross entropy loss
+        - Early stopping logic
         """
-        print("🧠 Building LSTM model...")
+        print(f"🚀 Training {model_type} model...")
         
-        model = Sequential([
-            # First LSTM layer: captures initial patterns
-            LSTM(50, return_sequences=True, input_shape=input_shape),
-            Dropout(0.2),  # 20% dropout to prevent overfitting
-            
-            # Second LSTM layer: learns more complex patterns
-            LSTM(50, return_sequences=True),
-            Dropout(0.2),
-            
-            # Third LSTM layer: final sequence processing
-            LSTM(50, return_sequences=False),
-            Dropout(0.2),
-            
-            # Dense layers for classification
-            Dense(25, activation='relu'),  # Hidden layer
-            Dropout(0.2),
-            Dense(1, activation='sigmoid')  # Output: probability of going up
-        ])
+        # Convert to PyTorch tensors
+        X_train_tensor = torch.FloatTensor(X_train).to(self.device)
+        y_train_tensor = torch.FloatTensor(y_train).unsqueeze(1).to(self.device)
+        X_test_tensor = torch.FloatTensor(X_test).to(self.device)
+        y_test_tensor = torch.FloatTensor(y_test).unsqueeze(1).to(self.device)
         
-        # Compile model
-        # Adam optimizer: adaptive learning rate
-        # Binary crossentropy: good for binary classification
-        # Accuracy: easy to understand metric
-        model.compile(
-            optimizer=Adam(learning_rate=LEARNING_RATE),
-            loss='binary_crossentropy',
-            metrics=['accuracy']
+        # Create data loaders
+        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+        test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+        
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+        
+        # Initialize model
+        input_size = X_train.shape[2]
+        if model_type == 'LSTM':
+            model = LSTMModel(input_size).to(self.device)
+        else:  # GRU
+            model = GRUModel(input_size).to(self.device)
+        
+        # Loss function and optimizer
+        criterion = nn.BCELoss()
+        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=5, min_lr=0.0001
         )
         
-        print("✅ LSTM model built")
-        model.summary()
+        # Training history
+        history = {
+            'train_loss': [],
+            'train_acc': [],
+            'val_loss': [],
+            'val_acc': []
+        }
         
-        return model
-    
-    def build_gru_model(self, input_shape):
-        """
-        Build GRU (Gated Recurrent Unit) neural network model.
+        # Early stopping variables
+        best_val_loss = float('inf')
+        patience_counter = 0
+        patience = 10
         
-        GRU is similar to LSTM but simpler and faster:
-        - Uses fewer parameters than LSTM
-        - Often performs similarly to LSTM
-        - Faster training and inference
-        - Good alternative if LSTM is too slow
-        """
-        print("🧠 Building GRU model...")
-        
-        model = Sequential([
-            # First GRU layer
-            GRU(50, return_sequences=True, input_shape=input_shape),
-            Dropout(0.2),
+        # Training loop
+        for epoch in range(EPOCHS):
+            # Training phase
+            model.train()
+            train_loss = 0.0
+            train_correct = 0
+            train_total = 0
             
-            # Second GRU layer
-            GRU(50, return_sequences=True),
-            Dropout(0.2),
+            for batch_X, batch_y in train_loader:
+                optimizer.zero_grad()
+                
+                outputs = model(batch_X)
+                loss = criterion(outputs, batch_y)
+                
+                loss.backward()
+                optimizer.step()
+                
+                train_loss += loss.item()
+                predicted = (outputs > 0.5).float()
+                train_total += batch_y.size(0)
+                train_correct += (predicted == batch_y).sum().item()
             
-            # Third GRU layer  
-            GRU(50, return_sequences=False),
-            Dropout(0.2),
+            # Validation phase
+            model.eval()
+            val_loss = 0.0
+            val_correct = 0
+            val_total = 0
             
-            # Dense layers for classification
-            Dense(25, activation='relu'),
-            Dropout(0.2),
-            Dense(1, activation='sigmoid')  # Binary classification
-        ])
+            with torch.no_grad():
+                for batch_X, batch_y in test_loader:
+                    outputs = model(batch_X)
+                    loss = criterion(outputs, batch_y)
+                    
+                    val_loss += loss.item()
+                    predicted = (outputs > 0.5).float()
+                    val_total += batch_y.size(0)
+                    val_correct += (predicted == batch_y).sum().item()
+            
+            # Calculate averages
+            train_loss /= len(train_loader)
+            train_acc = train_correct / train_total
+            val_loss /= len(test_loader)
+            val_acc = val_correct / val_total
+            
+            # Store history
+            history['train_loss'].append(train_loss)
+            history['train_acc'].append(train_acc)
+            history['val_loss'].append(val_loss)
+            history['val_acc'].append(val_acc)
+            
+            # Learning rate scheduling
+            scheduler.step(val_loss)
+            
+            # Early stopping
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                # Save best model
+                torch.save(model.state_dict(), f"{self.model_path}{model_type.lower()}_best.pth")
+            else:
+                patience_counter += 1
+            
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
+            
+            # Print progress
+            if (epoch + 1) % 10 == 0:
+                print(f'Epoch [{epoch+1}/{EPOCHS}] - '
+                      f'Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, '
+                      f'Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}')
         
-        model.compile(
-            optimizer=Adam(learning_rate=LEARNING_RATE),
-            loss='binary_crossentropy',
-            metrics=['accuracy']
-        )
+        # Load best model
+        model.load_state_dict(torch.load(f"{self.model_path}{model_type.lower()}_best.pth"))
         
-        print("✅ GRU model built")
-        return model
-    
-    def train_lstm_model(self, X_train, y_train, X_test, y_test):
-        """
-        Train LSTM model and track performance.
+        # Save final model
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'model_type': model_type,
+            'input_size': input_size,
+            'history': history
+        }, f"{self.model_path}{model_type.lower()}_model.pth")
         
-        Why we use validation data:
-        - Monitor overfitting during training
-        - Stop early if model stops improving  
-        - Get unbiased performance estimate
-        """
-        print("🚀 Training LSTM model...")
-        
-        # Build model
-        model = self.build_lstm_model((X_train.shape[1], X_train.shape[2]))
-        
-        # Create callbacks for better training
-        callbacks = [
-            # Stop early if validation loss stops improving
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,  # Wait 10 epochs before stopping
-                restore_best_weights=True
-            ),
-            # Reduce learning rate if stuck
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,  # Cut learning rate in half
-                patience=5,
-                min_lr=0.0001
-            )
-        ]
-        
-        # Train the model
-        history = model.fit(
-            X_train, y_train,
-            epochs=EPOCHS,
-            batch_size=BATCH_SIZE,
-            validation_data=(X_test, y_test),
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        # Save the model
-        model_path = f"{self.model_path}lstm_model.h5"
-        model.save(model_path)
-        print(f"💾 LSTM model saved to {model_path}")
+        print(f"💾 {model_type} model saved")
         
         # Store results
-        self.models['LSTM'] = model
-        self.results['LSTM'] = {
-            'history': history.history,
-            'model_path': model_path
+        self.models[model_type] = model
+        self.results[model_type] = {
+            'history': history,
+            'model_path': f"{self.model_path}{model_type.lower()}_model.pth"
         }
         
         return model, history
     
     def train_traditional_models(self, X_train, y_train, X_test, y_test):
-        """
-        Train traditional machine learning models for comparison.
-        
-        Why compare with traditional ML:
-        - Sometimes simpler models work better
-        - Faster to train and predict
-        - More interpretable results
-        - Good baseline to beat with neural networks
-        """
+        """Train traditional machine learning models for comparison."""
         print("📊 Training traditional ML models...")
         
-        # Flatten sequences for traditional ML (they don't handle sequences)
+        # Flatten sequences for traditional ML
         X_train_flat = X_train.reshape(X_train.shape[0], -1)
         X_test_flat = X_test.reshape(X_test.shape[0], -1)
         
-        # Scale features for traditional ML
+        # Scale features
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train_flat)
         X_test_scaled = scaler.transform(X_test_flat)
@@ -325,8 +398,8 @@ class StockPredictor:
         # Model 1: Random Forest
         print("  🌲 Training Random Forest...")
         rf_model = RandomForestClassifier(
-            n_estimators=100,  # 100 trees
-            max_depth=10,      # Prevent overfitting
+            n_estimators=100,
+            max_depth=10,
             random_state=42
         )
         rf_model.fit(X_train_scaled, y_train)
@@ -334,12 +407,12 @@ class StockPredictor:
         # Model 2: Logistic Regression
         print("  📈 Training Logistic Regression...")
         lr_model = LogisticRegression(
-            max_iter=1000,     # Ensure convergence
+            max_iter=1000,
             random_state=42
         )
         lr_model.fit(X_train_scaled, y_train)
         
-        # Save traditional models
+        # Save models
         with open(f"{self.model_path}random_forest.pkl", 'wb') as f:
             pickle.dump((rf_model, scaler), f)
         
@@ -354,31 +427,30 @@ class StockPredictor:
         return rf_model, lr_model, scaler
     
     def evaluate_models(self, X_test, y_test):
-        """
-        Evaluate all trained models and compare performance.
-        
-        Metrics we track:
-        - Accuracy: Overall correctness
-        - Precision: Of predicted UPs, how many were correct
-        - Recall: Of actual UPs, how many did we catch
-        - F1-score: Balance between precision and recall
-        """
+        """Evaluate all trained models and compare performance."""
         print("📊 Evaluating all models...")
         
         results_summary = {}
         
-        # Evaluate LSTM
-        if 'LSTM' in self.models:
-            print("  🧠 Evaluating LSTM...")
-            lstm_model = self.models['LSTM']
-            lstm_pred = lstm_model.predict(X_test)
-            lstm_pred_binary = (lstm_pred > 0.5).astype(int).flatten()
-            
-            results_summary['LSTM'] = {
-                'accuracy': accuracy_score(y_test, lstm_pred_binary),
-                'classification_report': classification_report(y_test, lstm_pred_binary),
-                'predictions': lstm_pred_binary
-            }
+        # Evaluate PyTorch models
+        for model_type in ['LSTM', 'GRU']:
+            if model_type in self.models:
+                print(f"  🧠 Evaluating {model_type}...")
+                model = self.models[model_type]
+                model.eval()
+                
+                # Convert to tensor and predict
+                X_test_tensor = torch.FloatTensor(X_test).to(self.device)
+                with torch.no_grad():
+                    predictions = model(X_test_tensor).cpu().numpy()
+                
+                pred_binary = (predictions > 0.5).astype(int).flatten()
+                
+                results_summary[model_type] = {
+                    'accuracy': accuracy_score(y_test, pred_binary),
+                    'classification_report': classification_report(y_test, pred_binary),
+                    'predictions': pred_binary
+                }
         
         # Evaluate traditional models
         X_test_flat = X_test.reshape(X_test.shape[0], -1)
@@ -410,39 +482,38 @@ class StockPredictor:
         return results_summary
     
     def plot_training_history(self):
-        """
-        Plot training history for neural networks.
+        """Plot training history for neural networks."""
+        pytorch_models = ['LSTM', 'GRU']
+        available_models = [m for m in pytorch_models if m in self.results]
         
-        This helps us understand:
-        - Is the model learning?
-        - Is it overfitting?
-        - Should we train longer or stop earlier?
-        """
-        if 'LSTM' not in self.results:
-            print("No LSTM training history to plot")
+        if not available_models:
+            print("No PyTorch training history to plot")
             return
         
-        history = self.results['LSTM']['history']
+        fig, axes = plt.subplots(len(available_models), 2, figsize=(15, 5*len(available_models)))
+        if len(available_models) == 1:
+            axes = axes.reshape(1, -1)
         
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-        
-        # Plot accuracy
-        ax1.plot(history['accuracy'], label='Training Accuracy', color='blue')
-        ax1.plot(history['val_accuracy'], label='Validation Accuracy', color='red')
-        ax1.set_title('Model Accuracy Over Time')
-        ax1.set_xlabel('Epoch')
-        ax1.set_ylabel('Accuracy')
-        ax1.legend()
-        ax1.grid(True)
-        
-        # Plot loss
-        ax2.plot(history['loss'], label='Training Loss', color='blue')
-        ax2.plot(history['val_loss'], label='Validation Loss', color='red')
-        ax2.set_title('Model Loss Over Time')
-        ax2.set_xlabel('Epoch')
-        ax2.set_ylabel('Loss')
-        ax2.legend()
-        ax2.grid(True)
+        for idx, model_name in enumerate(available_models):
+            history = self.results[model_name]['history']
+            
+            # Plot accuracy
+            axes[idx, 0].plot(history['train_acc'], label='Training Accuracy', color='blue')
+            axes[idx, 0].plot(history['val_acc'], label='Validation Accuracy', color='red')
+            axes[idx, 0].set_title(f'{model_name} - Accuracy Over Time')
+            axes[idx, 0].set_xlabel('Epoch')
+            axes[idx, 0].set_ylabel('Accuracy')
+            axes[idx, 0].legend()
+            axes[idx, 0].grid(True)
+            
+            # Plot loss
+            axes[idx, 1].plot(history['train_loss'], label='Training Loss', color='blue')
+            axes[idx, 1].plot(history['val_loss'], label='Validation Loss', color='red')
+            axes[idx, 1].set_title(f'{model_name} - Loss Over Time')
+            axes[idx, 1].set_xlabel('Epoch')
+            axes[idx, 1].set_ylabel('Loss')
+            axes[idx, 1].legend()
+            axes[idx, 1].grid(True)
         
         plt.tight_layout()
         plot_path = f"{self.results_path}training_history.png"
@@ -451,15 +522,7 @@ class StockPredictor:
         print(f"📊 Training plots saved to {plot_path}")
 
     def create_confusion_matrices(self, results_summary, y_test):
-        """
-        Create confusion matrices for all models.
-        
-        Confusion matrix shows:
-        - True Positives: Correctly predicted UP
-        - True Negatives: Correctly predicted DOWN  
-        - False Positives: Predicted UP but was DOWN
-        - False Negatives: Predicted DOWN but was UP
-        """
+        """Create confusion matrices for all models."""
         n_models = len(results_summary)
         fig, axes = plt.subplots(1, n_models, figsize=(5*n_models, 4))
         
@@ -489,15 +552,7 @@ class StockPredictor:
         print(f"📊 Confusion matrices saved to {plot_path}")
 
     def predict_next_day(self, symbol, model_name='LSTM'):
-        """
-        Predict tomorrow's direction for a specific stock.
-        
-        This function:
-        1. Gets the latest data for the stock
-        2. Prepares it in the same format as training
-        3. Makes a prediction using the trained model
-        4. Returns probability and direction
-        """
+        """Predict tomorrow's direction for a specific stock."""
         print(f"🔮 Predicting next day for {symbol} using {model_name}...")
         
         if model_name not in self.models:
@@ -508,13 +563,13 @@ class StockPredictor:
             # Get fresh data
             import yfinance as yf
             stock = yf.Ticker(symbol)
-            recent_data = stock.history(period='3mo')  # Get 3 months of recent data
+            recent_data = stock.history(period='3mo')
             
             if len(recent_data) < SEQUENCE_LENGTH:
                 print(f"❌ Not enough recent data for {symbol}")
                 return None
             
-            # Prepare features (same as training)
+            # Prepare features
             processed_data = self.add_technical_indicators(recent_data.copy())
             feature_columns = ['Open', 'High', 'Low', 'Close', 'Volume',
                              'SMA_20', 'SMA_50', 'RSI', 'MACD', 'BB_upper', 'BB_lower']
@@ -527,21 +582,22 @@ class StockPredictor:
             
             # Take the last SEQUENCE_LENGTH days
             X_recent = X.iloc[-SEQUENCE_LENGTH:].values
-            
-            # Scale features
             X_scaled = self.feature_scaler.transform(X_recent)
             X_sequence = X_scaled.reshape(1, SEQUENCE_LENGTH, -1)
             
             # Make prediction
-            if model_name == 'LSTM':
+            if model_name in ['LSTM', 'GRU']:
                 model = self.models[model_name]
-                prediction = model.predict(X_sequence)[0][0]
+                model.eval()
+                X_tensor = torch.FloatTensor(X_sequence).to(self.device)
+                with torch.no_grad():
+                    prediction = model(X_tensor).cpu().numpy()[0][0]
                 direction = "UP" if prediction > 0.5 else "DOWN"
                 confidence = prediction if prediction > 0.5 else 1 - prediction
             else:
                 model, scaler = self.models[model_name]
                 X_flat = X_sequence.reshape(1, -1)
-                prediction = model.predict_proba(X_flat)[0][1]  # Probability of UP
+                prediction = model.predict_proba(X_flat)[0][1]
                 direction = "UP" if prediction > 0.5 else "DOWN"
                 confidence = prediction if prediction > 0.5 else 1 - prediction
             
@@ -587,17 +643,8 @@ class StockPredictor:
         return data
     
     def run_full_pipeline(self):
-        """
-        Run the complete model training pipeline.
-        
-        This is the main function that:
-        1. Loads and prepares data
-        2. Trains all models  
-        3. Evaluates performance
-        4. Creates visualizations
-        5. Saves everything
-        """
-        print("🚀 STARTING FULL MODEL TRAINING PIPELINE")
+        """Run the complete model training pipeline."""
+        print("🚀 STARTING FULL MODEL TRAINING PIPELINE (PyTorch)")
         print("=" * 50)
         
         # Step 1: Load data
@@ -608,11 +655,10 @@ class StockPredictor:
         # Step 2: Prepare features
         X, y, feature_names = self.prepare_features(data)
         
-        # Step 3: Create sequences for LSTM
+        # Step 3: Create sequences
         X_seq, y_seq = self.create_sequences(X, y)
         
         # Step 4: Split data
-        # Use 80% for training, 20% for testing
         split_idx = int(len(X_seq) * TRAIN_SPLIT)
         X_train, X_test = X_seq[:split_idx], X_seq[split_idx:]
         y_train, y_test = y_seq[:split_idx], y_seq[split_idx:]
@@ -621,7 +667,6 @@ class StockPredictor:
         print(f"📊 Testing samples: {len(X_test)}")
         
         # Step 5: Scale features
-        # Fit scaler on training data only (prevent data leakage)
         X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
         X_test_reshaped = X_test.reshape(-1, X_test.shape[-1])
         
@@ -633,8 +678,9 @@ class StockPredictor:
         X_train = X_train_scaled.reshape(X_train.shape)
         X_test = X_test_scaled.reshape(X_test.shape)
         
-        # Step 6: Train LSTM model
-        lstm_model, lstm_history = self.train_lstm_model(X_train, y_train, X_test, y_test)
+        # Step 6: Train PyTorch models
+        lstm_model, lstm_history = self.train_pytorch_model(X_train, y_train, X_test, y_test, 'LSTM')
+        gru_model, gru_history = self.train_pytorch_model(X_train, y_train, X_test, y_test, 'GRU')
         
         # Step 7: Train traditional models
         rf_model, lr_model, scaler = self.train_traditional_models(X_train, y_train, X_test, y_test)
