@@ -26,7 +26,7 @@ TRAIN_SPLIT = 0.8        # 80% for training, 20% for testing
 # Model settings
 EPOCHS = 50              # Number of training iterations
 BATCH_SIZE = 32          # Number of samples per training batch
-LEARNING_RATE = 0.001    # How fast the model learns
+LEARNING_RATE = 0.005    # How fast the model learns
 
 # Technical indicators to calculate
 INDICATORS = [
