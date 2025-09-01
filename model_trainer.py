@@ -30,10 +30,7 @@ class LSTMModel(nn.Module):
     """
     PyTorch LSTM model for stock price prediction.
     
-    Equivalent to the TensorFlow Sequential model with:
-    - 3 LSTM layers with dropout
-    - Dense layers for classification
-    - Sigmoid output for binary classification
+    FIXED: Model now outputs probabilities directly for consistency.
     """
     def __init__(self, input_size, hidden_size=50, num_layers=3, dropout=0.2):
         super(LSTMModel, self).__init__()
@@ -44,7 +41,7 @@ class LSTMModel(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             dropout=dropout,
-            batch_first=True  # Input shape: (batch, seq, feature)
+            batch_first=True
         )
         
         # Dropout layer
@@ -54,9 +51,10 @@ class LSTMModel(nn.Module):
         self.fc1 = nn.Linear(hidden_size, 25)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(25, 1)
+        # FIXED: Add sigmoid for probability output during inference
         self.sigmoid = nn.Sigmoid()
         
-    def forward(self, x):
+    def forward(self, x, return_logits=False):
         # LSTM forward pass
         lstm_out, (hidden, cell) = self.lstm(x)
         
@@ -70,16 +68,19 @@ class LSTMModel(nn.Module):
         out = self.fc1(out)
         out = self.relu(out)
         out = self.dropout(out)
-        out = self.fc2(out)
-        out = self.sigmoid(out)
+        logits = self.fc2(out)
         
-        return out
+        # FIXED: Return logits for training (BCEWithLogitsLoss), probabilities for inference
+        if return_logits:
+            return logits
+        else:
+            return self.sigmoid(logits)
 
 class GRUModel(nn.Module):
     """
     PyTorch GRU model for stock price prediction.
     
-    Equivalent to the TensorFlow GRU model.
+    FIXED: Model now outputs probabilities directly for consistency.
     """
     def __init__(self, input_size, hidden_size=50, num_layers=3, dropout=0.2):
         super(GRUModel, self).__init__()
@@ -100,9 +101,10 @@ class GRUModel(nn.Module):
         self.fc1 = nn.Linear(hidden_size, 25)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(25, 1)
+        # FIXED: Add sigmoid for probability output during inference
         self.sigmoid = nn.Sigmoid()
         
-    def forward(self, x):
+    def forward(self, x, return_logits=False):
         # GRU forward pass
         gru_out, hidden = self.gru(x)
         
@@ -116,21 +118,17 @@ class GRUModel(nn.Module):
         out = self.fc1(out)
         out = self.relu(out)
         out = self.dropout(out)
-        out = self.fc2(out)
-        out = self.sigmoid(out)
+        logits = self.fc2(out)
         
-        return out
+        # FIXED: Return logits for training (BCEWithLogitsLoss), probabilities for inference
+        if return_logits:
+            return logits
+        else:
+            return self.sigmoid(logits)
 
 class StockPredictor:
     """
     Complete stock movement prediction system using PyTorch.
-    
-    This class handles:
-    1. Data preprocessing 
-    2. Feature engineering
-    3. Model training (LSTM, GRU, Traditional ML)
-    4. Model comparison
-    5. Prediction and evaluation
     """
     
     def __init__(self):
@@ -240,13 +238,22 @@ class StockPredictor:
         """
         Train PyTorch model (LSTM or GRU).
         
-        This replaces the TensorFlow training with PyTorch equivalents:
-        - DataLoader for batch processing
-        - Adam optimizer
-        - Binary cross entropy loss
-        - Early stopping logic
+        FIXED: Proper handling of logits vs probabilities, corrected class weights.
         """
         print(f"🚀 Training {model_type} model...")
+        
+        # Check class distribution
+        unique, counts = np.unique(y_train, return_counts=True)
+        class_distribution = dict(zip(unique, counts))
+        print(f"📊 Training class distribution: {class_distribution}")
+        
+        # FIXED: Calculate class weights correctly
+        # pos_weight should be (negative_samples / positive_samples) for class imbalance
+        if len(counts) > 1 and 1 in class_distribution and 0 in class_distribution:
+            pos_weight = torch.FloatTensor([class_distribution[0] / class_distribution[1]]).to(self.device)
+        else:
+            pos_weight = torch.FloatTensor([1.0]).to(self.device)
+        print(f"⚖️ Positive class weight: {pos_weight.item():.3f}")
         
         # Convert to PyTorch tensors
         X_train_tensor = torch.FloatTensor(X_train).to(self.device)
@@ -268,11 +275,15 @@ class StockPredictor:
         else:  # GRU
             model = GRUModel(input_size).to(self.device)
         
-        # Loss function and optimizer
-        criterion = nn.BCELoss()
-        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+        print(f"🏗️ Model architecture:")
+        print(f"   Input size: {input_size}")
+        print(f"   Parameters: {sum(p.numel() for p in model.parameters()):,}")
+        
+        # Loss function with class weighting and optimizer
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.5, patience=5, min_lr=0.0001
+            optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-6, verbose=True
         )
         
         # Training history
@@ -280,13 +291,16 @@ class StockPredictor:
             'train_loss': [],
             'train_acc': [],
             'val_loss': [],
-            'val_acc': []
+            'val_acc': [],
+            'learning_rate': []
         }
         
         # Early stopping variables
         best_val_loss = float('inf')
         patience_counter = 0
-        patience = 10
+        patience = 15
+        
+        print(f"🎯 Starting training for {EPOCHS} epochs...")
         
         # Training loop
         for epoch in range(EPOCHS):
@@ -295,36 +309,61 @@ class StockPredictor:
             train_loss = 0.0
             train_correct = 0
             train_total = 0
+            train_predictions = []
+            train_targets = []
             
-            for batch_X, batch_y in train_loader:
+            for batch_idx, (batch_X, batch_y) in enumerate(train_loader):
                 optimizer.zero_grad()
                 
-                outputs = model(batch_X)
-                loss = criterion(outputs, batch_y)
+                # FIXED: Forward pass with logits for training
+                logits = model(batch_X, return_logits=True)  # Get logits for loss calculation
+                loss = criterion(logits, batch_y)
                 
+                # Backward pass
                 loss.backward()
+                
+                # Gradient clipping to prevent exploding gradients
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
                 optimizer.step()
                 
                 train_loss += loss.item()
-                predicted = (outputs > 0.5).float()
+                
+                # FIXED: Convert logits to probabilities for accuracy calculation
+                probs = torch.sigmoid(logits)
+                predicted = (probs > 0.5).float()
                 train_total += batch_y.size(0)
                 train_correct += (predicted == batch_y).sum().item()
+                
+                # Store for detailed analysis
+                train_predictions.extend(predicted.cpu().numpy().flatten())
+                train_targets.extend(batch_y.cpu().numpy().flatten())
             
             # Validation phase
             model.eval()
             val_loss = 0.0
             val_correct = 0
             val_total = 0
+            val_predictions = []
+            val_targets = []
             
             with torch.no_grad():
                 for batch_X, batch_y in test_loader:
-                    outputs = model(batch_X)
-                    loss = criterion(outputs, batch_y)
+                    # FIXED: Use logits for loss calculation
+                    logits = model(batch_X, return_logits=True)
+                    loss = criterion(logits, batch_y)
                     
                     val_loss += loss.item()
-                    predicted = (outputs > 0.5).float()
+                    
+                    # FIXED: Convert to probabilities for accuracy
+                    probs = torch.sigmoid(logits)
+                    predicted = (probs > 0.5).float()
                     val_total += batch_y.size(0)
                     val_correct += (predicted == batch_y).sum().item()
+                    
+                    # Store for analysis
+                    val_predictions.extend(predicted.cpu().numpy().flatten())
+                    val_targets.extend(batch_y.cpu().numpy().flatten())
             
             # Calculate averages
             train_loss /= len(train_loader)
@@ -337,6 +376,11 @@ class StockPredictor:
             history['train_acc'].append(train_acc)
             history['val_loss'].append(val_loss)
             history['val_acc'].append(val_acc)
+            history['learning_rate'].append(optimizer.param_groups[0]['lr'])
+            
+            # Check prediction distribution for debugging
+            train_pred_dist = np.bincount(np.array(train_predictions, dtype=int))
+            val_pred_dist = np.bincount(np.array(val_predictions, dtype=int))
             
             # Learning rate scheduling
             scheduler.step(val_loss)
@@ -351,14 +395,16 @@ class StockPredictor:
                 patience_counter += 1
             
             if patience_counter >= patience:
-                print(f"Early stopping at epoch {epoch+1}")
+                print(f"⏹️ Early stopping at epoch {epoch+1}")
                 break
             
-            # Print progress
-            if (epoch + 1) % 10 == 0:
-                print(f'Epoch [{epoch+1}/{EPOCHS}] - '
+            # Print detailed progress every 5 epochs
+            if (epoch + 1) % 5 == 0:
+                print(f'Epoch [{epoch+1:3d}/{EPOCHS}] - '
                       f'Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, '
                       f'Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}')
+                print(f'   Train Pred Dist: {train_pred_dist}, Val Pred Dist: {val_pred_dist}')
+                print(f'   LR: {optimizer.param_groups[0]["lr"]:.2e}, Patience: {patience_counter}/{patience}')
         
         # Load best model
         model.load_state_dict(torch.load(f"{self.model_path}{model_type.lower()}_best.pth"))
@@ -432,7 +478,7 @@ class StockPredictor:
         
         results_summary = {}
         
-        # Evaluate PyTorch models
+        # FIXED: Evaluate PyTorch models with proper probability handling
         for model_type in ['LSTM', 'GRU']:
             if model_type in self.models:
                 print(f"  🧠 Evaluating {model_type}...")
@@ -442,9 +488,15 @@ class StockPredictor:
                 # Convert to tensor and predict
                 X_test_tensor = torch.FloatTensor(X_test).to(self.device)
                 with torch.no_grad():
-                    predictions = model(X_test_tensor).cpu().numpy()
+                    # FIXED: Get probabilities directly (not logits)
+                    probabilities = model(X_test_tensor, return_logits=False).cpu().numpy()
                 
-                pred_binary = (predictions > 0.5).astype(int).flatten()
+                pred_binary = (probabilities > 0.5).astype(int).flatten()
+                
+                # Debug: Print some predictions to verify they're working
+                print(f"   Sample probabilities: {probabilities[:5].flatten()}")
+                print(f"   Sample predictions: {pred_binary[:5]}")
+                print(f"   Prediction distribution: UP={np.sum(pred_binary)}, DOWN={len(pred_binary) - np.sum(pred_binary)}")
                 
                 results_summary[model_type] = {
                     'accuracy': accuracy_score(y_test, pred_binary),
@@ -476,8 +528,9 @@ class StockPredictor:
             print(f"{model_name:<20}: {accuracy:.4f} ({accuracy*100:.2f}%)")
         
         # Find best model
-        best_model = max(results_summary.items(), key=lambda x: x[1]['accuracy'])
-        print(f"\n🏆 Best Model: {best_model[0]} ({best_model[1]['accuracy']*100:.2f}%)")
+        if results_summary:
+            best_model = max(results_summary.items(), key=lambda x: x[1]['accuracy'])
+            print(f"\n🏆 Best Model: {best_model[0]} ({best_model[1]['accuracy']*100:.2f}%)")
         
         return results_summary
     
@@ -524,6 +577,10 @@ class StockPredictor:
     def create_confusion_matrices(self, results_summary, y_test):
         """Create confusion matrices for all models."""
         n_models = len(results_summary)
+        if n_models == 0:
+            print("No models to create confusion matrices for")
+            return
+            
         fig, axes = plt.subplots(1, n_models, figsize=(5*n_models, 4))
         
         if n_models == 1:
@@ -552,7 +609,11 @@ class StockPredictor:
         print(f"📊 Confusion matrices saved to {plot_path}")
 
     def predict_next_day(self, symbol, model_name='LSTM'):
-        """Predict tomorrow's direction for a specific stock."""
+        """
+        Predict tomorrow's direction for a specific stock.
+        
+        FIXED: Proper probability handling for PyTorch models.
+        """
         print(f"🔮 Predicting next day for {symbol} using {model_name}...")
         
         if model_name not in self.models:
@@ -585,19 +646,26 @@ class StockPredictor:
             X_scaled = self.feature_scaler.transform(X_recent)
             X_sequence = X_scaled.reshape(1, SEQUENCE_LENGTH, -1)
             
-            # Make prediction
+            # FIXED: Make prediction with proper probability handling
             if model_name in ['LSTM', 'GRU']:
                 model = self.models[model_name]
                 model.eval()
                 X_tensor = torch.FloatTensor(X_sequence).to(self.device)
                 with torch.no_grad():
-                    prediction = model(X_tensor).cpu().numpy()[0][0]
+                    # FIXED: Get probability directly (no sigmoid needed)
+                    prediction = model(X_tensor, return_logits=False).cpu().numpy()[0][0]
+                
+                # Debug output
+                print(f"  Raw model output (probability): {prediction}")
+                
                 direction = "UP" if prediction > 0.5 else "DOWN"
                 confidence = prediction if prediction > 0.5 else 1 - prediction
             else:
+                # Traditional ML models
                 model, scaler = self.models[model_name]
                 X_flat = X_sequence.reshape(1, -1)
-                prediction = model.predict_proba(X_flat)[0][1]
+                X_scaled_flat = scaler.transform(X_flat)
+                prediction = model.predict_proba(X_scaled_flat)[0][1]
                 direction = "UP" if prediction > 0.5 else "DOWN"
                 confidence = prediction if prediction > 0.5 else 1 - prediction
             
@@ -614,6 +682,8 @@ class StockPredictor:
             
         except Exception as e:
             print(f"❌ Error predicting for {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
         
     def add_technical_indicators(self, data):
@@ -644,8 +714,8 @@ class StockPredictor:
     
     def run_full_pipeline(self):
         """Run the complete model training pipeline."""
-        print("🚀 STARTING FULL MODEL TRAINING PIPELINE (PyTorch)")
-        print("=" * 50)
+        print("🚀 STARTING FULL MODEL TRAINING PIPELINE (PyTorch - FIXED)")
+        print("=" * 60)
         
         # Step 1: Load data
         data = self.load_data()
