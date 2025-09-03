@@ -8,7 +8,7 @@ import streamlit as st
 import os
 
 # Import your model classes (you'll need to copy these to the dashboard folder)
-from model_trainer import LSTMModel, GRUModel  # Adjust import path
+from models import LSTMModel, GRUModel
 
 class ModelLoader:
     """
