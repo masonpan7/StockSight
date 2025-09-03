@@ -224,7 +224,7 @@ class ModelLoader:
             print(f"❌ Error predicting {symbol} with {model_name}: {e}")
             return None
     
-    def predict_all_stocks(self, model_name='LSTM', threshold=0.5):
+    def predict_all_stocks(self, model_name='GRU', threshold=0.5):
         """
         Make predictions for all stocks in the portfolio.
         """
