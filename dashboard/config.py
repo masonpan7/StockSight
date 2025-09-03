@@ -1,0 +1,2 @@
+MODEL_PATH = '../models/'
+SEQUENCE_LENGTH = 30
