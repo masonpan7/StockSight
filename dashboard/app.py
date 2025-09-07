@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import time
 
-# Import your model loader (adjust path as needed)
+# Import your model loader
 from model_loader import ModelLoader
 
 # Page configuration
@@ -18,27 +18,48 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize model loader (with caching)
+# Initialize model loader without caching
 @st.cache_resource
-def load_model_system():
-    """Initialize and load the model system."""
-    loader = ModelLoader()
-    if loader.load_models():
-        return loader
-    else:
-        return None
+def initialize_model_loader():
+    """Initialize the model loader."""
+    return ModelLoader()
+
+def load_models(model_loader):
+    """Load models and show status."""
+    if 'models_loaded' not in st.session_state:
+        with st.spinner("Loading models..."):
+            success = model_loader.load_models()
+            st.session_state.models_loaded = success
+            st.session_state.model_loader = model_loader
+    
+    return st.session_state.models_loaded
 
 def main():
     """Main dashboard application."""
     st.title("📈 Daily Stock Movement Predictor")
     st.markdown("Predict whether your stocks will go UP or DOWN tomorrow using machine learning models")
     
-    # Load models
-    with st.spinner("Loading models..."):
-        model_loader = load_model_system()
+    # Initialize model loader
+    model_loader = initialize_model_loader()
     
-    if model_loader is None:
+    # Load models
+    models_loaded = load_models(model_loader)
+    
+    if not models_loaded:
         st.error("❌ Could not load models. Please ensure model files are in the correct directory.")
+        
+        # Show debug info
+        with st.expander("🔧 Debug Information", expanded=True):
+            st.write(f"**Model path:** {model_loader.model_path}")
+            st.write(f"**Available models:** {model_loader.get_available_models()}")
+            
+            import os
+            if os.path.exists(model_loader.model_path):
+                files = os.listdir(model_loader.model_path)
+                st.write(f"**Files in model directory:** {files}")
+            else:
+                st.error(f"Model directory does not exist: {model_loader.model_path}")
+        
         st.stop()
     
     # Sidebar configuration
@@ -46,11 +67,15 @@ def main():
     
     # Model selection
     available_models = model_loader.get_available_models()
-    selected_model = st.sidebar.selectbox(
-        "Choose Model:",
-        available_models,
-        index=0 if available_models else None
-    )
+    if available_models:
+        selected_model = st.sidebar.selectbox(
+            "Choose Model:",
+            available_models,
+            index=0
+        )
+    else:
+        st.error("No models available")
+        st.stop()
     
     # Prediction threshold
     threshold = st.sidebar.slider(
@@ -68,7 +93,7 @@ def main():
     selected_stocks = st.sidebar.multiselect(
         "Select Stocks to Monitor:",
         all_stocks,
-        default=all_stocks,
+        default=all_stocks[:5],  # Default to first 5 stocks
         help="Choose which stocks to include in predictions"
     )
     
@@ -77,6 +102,8 @@ def main():
     
     # Manual refresh button
     if st.sidebar.button("🔄 Refresh Now"):
+        # Clear cached data
+        st.cache_data.clear()
         st.experimental_rerun()
     
     # Main dashboard tabs
@@ -122,6 +149,11 @@ def display_daily_predictions(model_loader, selected_model, selected_stocks, thr
     
     if not predictions:
         st.error("Could not make predictions. Please check if models are loaded correctly.")
+        # Show debug info for troubleshooting
+        st.write("**Debug Info:**")
+        st.write(f"Selected model: {selected_model}")
+        st.write(f"Available models: {model_loader.get_available_models()}")
+        st.write(f"Selected stocks: {selected_stocks}")
         return
     
     # Convert to DataFrame for easier handling
