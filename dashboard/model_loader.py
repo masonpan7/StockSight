@@ -85,7 +85,7 @@ class ModelLoader:
             traceback.print_exc()
             return False
     
-    def get_stock_data(self, symbol, period='3mo'):
+    def get_stock_data(self, symbol, period='6mo'):
         """Fetch recent stock data for a symbol."""
         try:
             stock = yf.Ticker(symbol)
