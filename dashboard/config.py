@@ -7,7 +7,7 @@ MODEL_PATH = './models/'
 RESULTS_PATH = './results/'
 
 # Model parameters
-SEQUENCE_LENGTH = 30
+SEQUENCE_LENGTH = 60
 BATCH_SIZE = 64
 EPOCHS = 100
 LEARNING_RATE = 0.001
