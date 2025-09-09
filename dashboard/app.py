@@ -7,10 +7,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import time
 
-# Import your model loader
 from model_loader import ModelLoader
 
-# Page configuration
 st.set_page_config(
     page_title="Stock Movement Predictor",
     page_icon="📈",
@@ -18,7 +16,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize model loader without caching
 @st.cache_resource
 def initialize_model_loader():
     """Initialize the model loader."""
@@ -36,20 +33,16 @@ def load_models(model_loader):
 
 def main():
     """Main dashboard application."""
-    st.title("📈 Daily Stock Movement Predictor")
+    st.title("Daily Stock Movement Predictor")
     st.markdown("Predict whether your stocks will go UP or DOWN tomorrow using machine learning models")
     
-    # Initialize model loader
     model_loader = initialize_model_loader()
-    
-    # Load models
     models_loaded = load_models(model_loader)
     
     if not models_loaded:
-        st.error("❌ Could not load models. Please ensure model files are in the correct directory.")
+        st.error("Could not load models. Please ensure model files are in the correct directory.")
         
-        # Show debug info
-        with st.expander("🔧 Debug Information", expanded=True):
+        with st.expander("Debug Information", expanded=True):
             st.write(f"**Model path:** {model_loader.model_path}")
             st.write(f"**Available models:** {model_loader.get_available_models()}")
             
@@ -63,9 +56,8 @@ def main():
         st.stop()
     
     # Sidebar configuration
-    st.sidebar.header("⚙️ Configuration")
+    st.sidebar.header("Configuration")
     
-    # Model selection
     available_models = model_loader.get_available_models()
     if available_models:
         selected_model = st.sidebar.selectbox(
@@ -77,7 +69,6 @@ def main():
         st.error("No models available")
         st.stop()
     
-    # Prediction threshold
     threshold = st.sidebar.slider(
         "Prediction Threshold:",
         min_value=0.1,
@@ -87,27 +78,22 @@ def main():
         help="Higher threshold = more conservative UP predictions"
     )
     
-    # Stock selection
-    st.sidebar.subheader("📊 Stock Portfolio")
+    st.sidebar.subheader("Stock Portfolio")
     all_stocks = model_loader.stock_symbols
     selected_stocks = st.sidebar.multiselect(
         "Select Stocks to Monitor:",
         all_stocks,
-        default=all_stocks[:5],  # Default to first 5 stocks
+        default=all_stocks[:5],
         help="Choose which stocks to include in predictions"
     )
     
-    # Auto-refresh toggle
-    auto_refresh = st.sidebar.checkbox("🔄 Auto Refresh (30s)", value=False)
+    auto_refresh = st.sidebar.checkbox("Auto Refresh (30s)", value=False)
     
-    # Manual refresh button
-    if st.sidebar.button("🔄 Refresh Now"):
-        # Clear cached data
+    if st.sidebar.button("Refresh Now"):
         st.cache_data.clear()
         st.experimental_rerun()
     
-    # Main dashboard tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Daily Predictions", "📈 Individual Analysis", "🎯 Model Performance", "⚙️ Settings"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Daily Predictions", "Individual Analysis", "Model Performance", "Settings"])
     
     with tab1:
         display_daily_predictions(model_loader, selected_model, selected_stocks, threshold)
@@ -121,20 +107,18 @@ def main():
     with tab4:
         display_settings()
     
-    # Auto-refresh logic
     if auto_refresh:
         time.sleep(30)
         st.experimental_rerun()
 
 def display_daily_predictions(model_loader, selected_model, selected_stocks, threshold):
     """Display daily predictions for all selected stocks."""
-    st.header(f"🎯 Today's Predictions ({selected_model})")
+    st.header(f"Today's Predictions ({selected_model})")
     
     if not selected_stocks:
         st.warning("Please select at least one stock from the sidebar.")
         return
     
-    # Get predictions
     with st.spinner("Making predictions..."):
         predictions = []
         progress_bar = st.progress(0)
@@ -149,46 +133,40 @@ def display_daily_predictions(model_loader, selected_model, selected_stocks, thr
     
     if not predictions:
         st.error("Could not make predictions. Please check if models are loaded correctly.")
-        # Show debug info for troubleshooting
         st.write("**Debug Info:**")
         st.write(f"Selected model: {selected_model}")
         st.write(f"Available models: {model_loader.get_available_models()}")
         st.write(f"Selected stocks: {selected_stocks}")
         return
     
-    # Convert to DataFrame for easier handling
     df_predictions = pd.DataFrame(predictions)
     
-    # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         up_count = len(df_predictions[df_predictions['prediction'] == 'UP'])
-        st.metric("📈 Predicted UP", up_count, f"{up_count/len(df_predictions)*100:.1f}%")
+        st.metric("Predicted UP", up_count, f"{up_count/len(df_predictions)*100:.1f}%")
     
     with col2:
         down_count = len(df_predictions[df_predictions['prediction'] == 'DOWN'])
-        st.metric("📉 Predicted DOWN", down_count, f"{down_count/len(df_predictions)*100:.1f}%")
+        st.metric("Predicted DOWN", down_count, f"{down_count/len(df_predictions)*100:.1f}%")
     
     with col3:
         avg_confidence = df_predictions['confidence'].mean()
-        st.metric("🎯 Avg Confidence", f"{avg_confidence:.1%}")
+        st.metric("Avg Confidence", f"{avg_confidence:.1%}")
     
     with col4:
         total_stocks = len(predictions)
-        st.metric("📊 Total Stocks", total_stocks)
+        st.metric("Total Stocks", total_stocks)
     
-    # Detailed predictions table
-    st.subheader("📋 Detailed Predictions")
+    st.subheader("Detailed Predictions")
     
-    # Create formatted dataframe for display
     display_df = df_predictions.copy()
     display_df['Probability'] = display_df['probability'].apply(lambda x: f"{x:.1%}")
     display_df['Confidence'] = display_df['confidence'].apply(lambda x: f"{x:.1%}")
     display_df['Current Price'] = display_df['current_price'].apply(lambda x: f"${x:.2f}")
     display_df['Change %'] = display_df['price_change_pct'].apply(lambda x: f"{x:+.2f}%")
     
-    # Style the dataframe
     def style_prediction(val):
         if val == 'UP':
             return 'background-color: #90EE90; color: black'
@@ -202,10 +180,8 @@ def display_daily_predictions(model_loader, selected_model, selected_stocks, thr
     
     st.dataframe(styled_df, use_container_width=True)
     
-    # Visualization
-    st.subheader("📊 Prediction Visualization")
+    st.subheader("Prediction Visualization")
     
-    # Create prediction distribution chart
     fig_dist = px.pie(
         df_predictions, 
         names='prediction', 
@@ -213,7 +189,6 @@ def display_daily_predictions(model_loader, selected_model, selected_stocks, thr
         color_discrete_map={'UP': '#90EE90', 'DOWN': '#FFB6C1'}
     )
     
-    # Create confidence distribution
     fig_conf = px.histogram(
         df_predictions,
         x='confidence',
@@ -231,9 +206,8 @@ def display_daily_predictions(model_loader, selected_model, selected_stocks, thr
 
 def display_individual_analysis(model_loader, selected_model, threshold):
     """Display detailed analysis for a single stock."""
-    st.header("🔍 Individual Stock Analysis")
+    st.header("Individual Stock Analysis")
     
-    # Stock selector
     selected_symbol = st.selectbox(
         "Select Stock for Detailed Analysis:",
         model_loader.stock_symbols
@@ -241,14 +215,12 @@ def display_individual_analysis(model_loader, selected_model, threshold):
     
     if st.button("Analyze Stock"):
         with st.spinner(f"Analyzing {selected_symbol}..."):
-            # Get prediction
             prediction = model_loader.predict_stock(selected_symbol, selected_model, threshold)
             
             if not prediction:
                 st.error(f"Could not analyze {selected_symbol}")
                 return
             
-            # Display prediction
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -264,13 +236,11 @@ def display_individual_analysis(model_loader, selected_model, threshold):
                 st.metric("Current Price", f"${prediction['current_price']:.2f}")
                 st.metric("Daily Change", f"{prediction['price_change_pct']:+.2f}%")
             
-            # Get historical data for charts
             stock_data = model_loader.get_stock_data(selected_symbol, period='1mo')
             
             if stock_data is not None:
-                st.subheader("📈 Recent Price Movement")
+                st.subheader("Recent Price Movement")
                 
-                # Create candlestick chart
                 fig = go.Figure(data=go.Candlestick(
                     x=stock_data.index,
                     open=stock_data['Open'],
@@ -287,18 +257,17 @@ def display_individual_analysis(model_loader, selected_model, threshold):
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Technical indicators
                 if 'RSI' in stock_data.columns:
-                    st.subheader("📊 Technical Indicators")
+                    st.subheader("Technical Indicators")
                     
                     col1, col2 = st.columns(2)
                     
                     with col1:
                         st.metric("RSI", f"{stock_data['RSI'].iloc[-1]:.1f}")
                         if stock_data['RSI'].iloc[-1] > 70:
-                            st.caption("⚠️ Potentially Overbought")
+                            st.caption("Potentially Overbought")
                         elif stock_data['RSI'].iloc[-1] < 30:
-                            st.caption("⚠️ Potentially Oversold")
+                            st.caption("Potentially Oversold")
                     
                     with col2:
                         if 'MACD' in stock_data.columns:
@@ -306,18 +275,17 @@ def display_individual_analysis(model_loader, selected_model, threshold):
 
 def display_model_performance(model_loader):
     """Display model performance and comparison."""
-    st.header("🎯 Model Performance")
+    st.header("Model Performance")
     
     st.info("Model performance metrics would be displayed here based on historical backtesting results.")
     
-    # Placeholder for model comparison
     models = model_loader.get_available_models()
     
-    st.subheader("📊 Available Models")
+    st.subheader("Available Models")
     for model in models:
         st.write(f"✅ {model}")
     
-    st.subheader("📈 Performance Metrics")
+    st.subheader("Performance Metrics")
     st.write("This section would show:")
     st.write("- Historical accuracy")
     st.write("- Precision and recall")
@@ -326,9 +294,9 @@ def display_model_performance(model_loader):
 
 def display_settings():
     """Display app settings and configuration."""
-    st.header("⚙️ Settings")
+    st.header("Settings")
     
-    st.subheader("📝 About")
+    st.subheader("About")
     st.write("""
     This dashboard uses machine learning models to predict stock price movements:
     
@@ -344,7 +312,7 @@ def display_settings():
     - Price change and volatility measures
     """)
     
-    st.subheader("⚠️ Disclaimer")
+    st.subheader("Disclaimer")
     st.warning("""
     **Investment Warning:**
     - These predictions are for educational purposes only
@@ -354,7 +322,7 @@ def display_settings():
     - Never invest more than you can afford to lose
     """)
     
-    st.subheader("🔧 Technical Details")
+    st.subheader("Technical Details")
     st.write(f"- Sequence Length: {30} days")
     st.write(f"- Update Frequency: Real-time (market hours)")
     st.write(f"- Data Source: Yahoo Finance")
