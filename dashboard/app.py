@@ -10,7 +10,7 @@ import time
 from model_loader import ModelLoader
 
 st.set_page_config(
-    page_title="Stock Movement Predictor",
+    page_title="StockSight AI",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -33,7 +33,7 @@ def load_models(model_loader):
 
 def main():
     """Main dashboard application."""
-    st.title("Daily Stock Movement Predictor")
+    st.title("StockSight AI - Predictive Trading Dashboard")
     st.markdown("Predict whether your stocks will go UP or DOWN tomorrow using machine learning models")
     
     model_loader = initialize_model_loader()
