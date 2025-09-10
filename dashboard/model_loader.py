@@ -17,7 +17,9 @@ class ModelLoader:
         self.sequence_length = sequence_length
         self.device = self._get_device()
         
-        self.models = {}
+        # Use OrderedDict to maintain insertion order, with GRU first
+        from collections import OrderedDict
+        self.models = OrderedDict()
         self.scalers = {}
         
         self.stock_symbols = [
@@ -35,34 +37,47 @@ class ModelLoader:
             return torch.device("cpu")
     
     def load_models(self):
-        """Load all trained models."""
+        """Load all trained models with desired order: GRU, Random Forest, LSTM, Logistic Regression."""
         try:
-            # Load PyTorch models
-            for model_type in ['lstm', 'gru']:
-                model_file = f"{self.model_path}{model_type}_model.pth"
-                if os.path.exists(model_file):
-                    checkpoint = torch.load(model_file, map_location=self.device)
-                    
-                    input_size = checkpoint['input_size']
-                    if model_type == 'lstm':
-                        model = LSTMModel(input_size).to(self.device)
-                    else:
-                        model = GRUModel(input_size).to(self.device)
-                    
-                    model.load_state_dict(checkpoint['model_state_dict'])
-                    model.eval()
-                    
-                    self.models[model_type.upper()] = model
-                    print(f"Loaded {model_type.upper()} model")
+            # Load GRU first
+            gru_file = f"{self.model_path}gru_model.pth"
+            if os.path.exists(gru_file):
+                checkpoint = torch.load(gru_file, map_location=self.device)
+                input_size = checkpoint['input_size']
+                model = GRUModel(input_size).to(self.device)
+                model.load_state_dict(checkpoint['model_state_dict'])
+                model.eval()
+                self.models['GRU'] = model
+                print("Loaded GRU model")
             
-            # Load traditional ML models
-            for model_name in ['random_forest', 'logistic_regression']:
-                model_file = f"{self.model_path}{model_name}.pkl"
-                if os.path.exists(model_file):
-                    with open(model_file, 'rb') as f:
-                        model, scaler = pickle.load(f)
-                        self.models[model_name.replace('_', ' ').title()] = (model, scaler)
-                    print(f"Loaded {model_name}")
+            # Load Random Forest second
+            rf_file = f"{self.model_path}random_forest.pkl"
+            if os.path.exists(rf_file):
+                with open(rf_file, 'rb') as f:
+                    model, scaler = pickle.load(f)
+                    self.models['Random Forest'] = (model, scaler)
+                print("Loaded Random Forest")
+            
+            # Load LSTM third
+            '''
+            lstm_file = f"{self.model_path}lstm_model.pth"
+            if os.path.exists(lstm_file):
+                checkpoint = torch.load(lstm_file, map_location=self.device)
+                input_size = checkpoint['input_size']
+                model = LSTMModel(input_size).to(self.device)
+                model.load_state_dict(checkpoint['model_state_dict'])
+                model.eval()
+                self.models['LSTM'] = model
+                print("Loaded LSTM model")
+            '''
+            
+            # Load Logistic Regression last
+            lr_file = f"{self.model_path}logistic_regression.pkl"
+            if os.path.exists(lr_file):
+                with open(lr_file, 'rb') as f:
+                    model, scaler = pickle.load(f)
+                    self.models['Logistic Regression'] = (model, scaler)
+                print("Loaded Logistic Regression")
             
             # Load feature scaler
             scaler_file = f"{self.model_path}feature_scaler.pkl"
@@ -219,5 +234,5 @@ class ModelLoader:
         return predictions
     
     def get_available_models(self):
-        """Return list of available models."""
+        """Return list of available models with GRU first."""
         return list(self.models.keys())
