@@ -38,17 +38,16 @@ Clone the repo:
 ```bash
 git clone https://github.com/masonpan7/stocksight.git
 cd stocksight
-Install dependencies:
 
-bash
-Copy code
+**## Install dependencies:**
+
 pip install -r requirements.txt
-🛠 Usage
-Run the Streamlit app:
+**## 🛠 Usage **
 
-bash
-Copy code
+**## Run the Streamlit app:**
+
 streamlit run app/app.py
+
 This will launch a local web interface where you can:
 
 Upload or select a stock dataset
