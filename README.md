@@ -14,3 +14,5 @@
   - **Recurrent Neural Networks (GRU & LSTM)** for time-series modeling  
 - Evaluation metrics (Precision, Recall, F1, ROC-AUC, RMSE, etc.).  
 - **Interactive Streamlit app** for running predictions and visualizing results.  
+
+To see the app, go to https://stocksightai.streamlit.app/
