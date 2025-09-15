@@ -29,9 +29,6 @@
 ├── requirements.txt # Dependencies
 └── README.md # Project documentation
 
-yaml
-Copy code
-
 ---
 
 ## ⚡ Installation
